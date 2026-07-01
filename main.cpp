@@ -1,21 +1,38 @@
 #include <stdio.h>
 #include <iostream>
+#include <climits>
 
 using namespace std;
 
-// ok now lets design the code so it go along with all our design chcoses
+bool is_prefix(string const str, string const prefix)
+{
+    if (prefix.length() > str.length())
+    {
+        return false;
+    }
+    for (int i{0}; i < (int)prefix.length(); i++)
+    {
+        if (str[i] != prefix[i])
+        {
+            return false;
+        }
+    }
+    return true;
+}
 
 struct Book
 {
     int id;
     string name;
     int quantity;
+    bool is_deleted;
 
     Book()
     {
         id = -1;
         name = "";
         quantity = 0;
+        is_deleted = false;
     }
 
     Book(int _id, string _name, int _quantity)
@@ -23,32 +40,15 @@ struct Book
         id = _id;
         name = _name;
         quantity = _quantity;
+        is_deleted = false;
+    }
+
+    void delete_book()
+    {
+        is_deleted = true;
     }
 };
-/*
-Using global variables is generally considered bad practice because they offer no control or boundaries; any class or function across your codebase can access and modify them without restrictions.
 
-For example, if you encapsulate an id_generator variable and its logic inside a struct or class, any component in your codebase that needs an ID must explicitly call the generate_id function. It can no longer directly access or alter the underlying max_id variable. By forcing access through a function, you gain the ability to implement necessary guards and controls—such as checking if you have reached the maximum possible ID limit.
-
-On a deeper level, this encapsulation makes it much easier to implement and reason about synchronization and race conditions. Ultimately, it provides the logical control required to safely manage and understand how your variable changes state.
-
-int const MAX_Books_Number = 1000;
-int curr_book = 0;
-int current_id = 0;
-int generate_id()
-{
-    current_id++;
-    return current_id - 1;
-}
-*/
-
-/*
-Of course, this approach is much better than using a global variable for the reasons we discussed. The question now is: should I make this static or not?
-
-Making it static means that the max_id variable and the generate_id function will be shared across the entire codebase. This would be perfectly fine if we only ever have one library, meaning we would only need a single ID generator for the books in that library.
-
-However, what if we want to scale? Even though scaling won't actually happen in this specific project, I have another reason to make it non-static: logically, an ID generator is not a universal tool. It is specifically tied to generating IDs for a single, distinct library. Therefore, it makes much more sense to encapsulate it directly within the library instance itself.
-*/
 struct Id_Generator
 {
     int max_id;
@@ -64,6 +64,78 @@ struct Id_Generator
     }
 };
 
+struct SearchResult
+{
+    Book **Pointer_to_pointer_array;
+    int count;
+    int max_size;
+    SearchResult()
+    {
+        count = 0;
+        max_size = 1;
+        Pointer_to_pointer_array = new Book *[max_size];
+    }
+    bool resize_to_double()
+    {
+        if (max_size == INT_MAX)
+        {
+            return false;
+        }
+        max_size *= 2;
+        Book **new_Pointer_to_pointer_array = new Book *[max_size];
+        for (int i = 0; i < max_size / 2; i++)
+        {
+            new_Pointer_to_pointer_array[i] = Pointer_to_pointer_array[i];
+        }
+        delete[] Pointer_to_pointer_array;
+        Pointer_to_pointer_array = new_Pointer_to_pointer_array;
+        return true;
+    }
+    bool add_pointer_to_book(Book *Book_ptr)
+    {
+        if (count == max_size)
+        {
+            bool is_every_thing_is_ok = resize_to_double();
+            if (!is_every_thing_is_ok)
+            {
+                return false;
+            }
+        }
+        Pointer_to_pointer_array[count] = Book_ptr;
+        count++;
+        return true;
+    }
+    SearchResult(SearchResult const &other){
+        this->max_size = other.max_size;
+        this->count = other.count;
+        this->Pointer_to_pointer_array = new Book *[this->max_size];
+        for (int i{0}; i < other.count; i++)
+        {
+            this->Pointer_to_pointer_array[i] = other.Pointer_to_pointer_array[i];
+        }
+    }
+    SearchResult &operator=(SearchResult const &other)
+    {
+        if (this == &other)
+        {
+            return *this;
+        }
+        delete[] this->Pointer_to_pointer_array;
+        this->max_size = other.max_size;
+        this->count = other.count;
+        this->Pointer_to_pointer_array = new Book *[this->max_size];
+        for (int i{0}; i < other.count; i++)
+        {
+            this->Pointer_to_pointer_array[i] = other.Pointer_to_pointer_array[i];
+        }
+        return *this;
+    }
+    ~SearchResult()
+    {
+        delete[] Pointer_to_pointer_array;
+    }
+};
+
 struct Library_Books
 {
     int MAX_Books_Number;
@@ -71,7 +143,6 @@ struct Library_Books
     int library_id;
     string library_name;
     Id_Generator id_generator;
-    // i think this should an pointer to array (you cannot set size of the array before user enter it)
     Book *book_array;
 
     Library_Books()
@@ -89,18 +160,50 @@ struct Library_Books
         curr_book = 0;
         library_id = _library_id;
         library_name = _library_name;
-        /*
-        I believe my previous approach was incorrect because it allocated memory on the stack
-        instead of the heap. If I initialize a temporary array like 'Book temp_book[MAX_Books_Number]{};',
-        it is placed on the stack frame of the constructor.
-
-        Since stack variables are destroyed when their enclosing function exits, and a constructor
-        is fundamentally a function that finishes executing after initialization, any temporary stack
-        variable created inside it will be destroyed. Therefore, I cannot safely assign a local
-        stack array to 'book_array'. Should I use dynamic memory allocation to allocate this array
-        on the heap instead?
-        */
         book_array = new Book[MAX_Books_Number]{};
+    }
+
+    ~Library_Books() { delete[] book_array; }
+
+    Library_Books(const Library_Books &other)
+    {
+        MAX_Books_Number = other.MAX_Books_Number;
+        curr_book = other.curr_book;
+        library_id = other.library_id;
+        library_name = other.library_name;
+        id_generator = other.id_generator;
+        if (other.book_array == nullptr)
+        {
+            book_array = nullptr;
+        }
+        else
+        {
+            book_array = new Book[MAX_Books_Number];
+            for (int i{0}; i < curr_book; i++)
+            {
+                book_array[i] = other.book_array[i];
+            }
+        }
+    }
+
+    Library_Books &operator=(const Library_Books &other)
+    {
+        if (this == &other)
+        {
+            return *this;
+        }
+        this->MAX_Books_Number = other.MAX_Books_Number;
+        this->curr_book = other.curr_book;
+        this->library_id = other.library_id;
+        this->library_name = other.library_name;
+        this->id_generator = other.id_generator;
+        delete[] this->book_array;
+        this->book_array = new Book[MAX_Books_Number];
+        for (int i{0}; i < curr_book; i++)
+        {
+            this->book_array[i] = other.book_array[i];
+        }
+        return *this;
     }
 
     bool add_book(string name, int quantity)
@@ -110,13 +213,75 @@ struct Library_Books
         {
             return false;
         }
-        if(curr_book >= MAX_Books_Number){
-            return false ; 
+        if (curr_book >= MAX_Books_Number)
+        {
+            return false;
         }
-        // make it simple you will just add book
-        book_array[curr_book] = Book(id_generator.generate_id(), name , quantity);
+        book_array[curr_book] = Book(id_generator.generate_id(), name, quantity);
         curr_book++;
-        return true ;
+        return true;
+    }
+
+    int get_book_index_by_id(int Book_id)
+    {
+        if (curr_book <= 0)
+        {
+            return -1;
+        }
+        for (int i{0}; i < curr_book; i++)
+        {
+            if (book_array[i].id == Book_id)
+            {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    bool delete_book(int Book_id)
+    {
+        int idx{get_book_index_by_id(Book_id)};
+        if (idx == -1 || (book_array[idx].is_deleted == true))
+        {
+            return false;
+        }
+        book_array[idx].is_deleted = true;
+        return true;
+    }
+    void get_books_by_prefix_consolo(string Book_prefix)
+    {
+        if (curr_book <= 0)
+        {
+            cout << "No Books exist in this library\n";
+        }
+        bool is_there_is_a_match {false} ;
+        for (int i{0}; i < curr_book; i++)
+        {
+            if (is_prefix(book_array[i].name, Book_prefix) && (book_array[i].is_deleted == false))
+            {
+                cout << "Book name : " << book_array[i].name << " Book id : " << book_array[i].id << " \n";
+                is_there_is_a_match =true ;
+            }
+        }
+        if(!is_there_is_a_match){
+            cout<<"No matches exist for this prefix \n";
+        }
+    }
+    SearchResult get_books_by_prefix(string Book_prefix)
+    {
+        SearchResult query_res = SearchResult();
+        if (curr_book <= 0)
+        {
+            return query_res;
+        }
+        for (int i{0}; i < curr_book; i++)
+        {
+            if (is_prefix(book_array[i].name, Book_prefix) && (book_array[i].is_deleted == false))
+            {
+                query_res.add_pointer_to_book(&book_array[i]);
+            }
+        }
+        return query_res;
     }
 };
 
