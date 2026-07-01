@@ -105,7 +105,8 @@ struct SearchResult
         count++;
         return true;
     }
-    SearchResult(SearchResult const &other){
+    SearchResult(SearchResult const &other)
+    {
         this->max_size = other.max_size;
         this->count = other.count;
         this->Pointer_to_pointer_array = new Book *[this->max_size];
@@ -248,25 +249,44 @@ struct Library_Books
         book_array[idx].is_deleted = true;
         return true;
     }
-    void get_books_by_prefix_consolo(string Book_prefix)
+    void get_books_by_prefix_console(string Book_prefix)
     {
         if (curr_book <= 0)
         {
             cout << "No Books exist in this library\n";
+            return;
         }
-        bool is_there_is_a_match {false} ;
+        bool is_there_is_a_match{false};
         for (int i{0}; i < curr_book; i++)
         {
             if (is_prefix(book_array[i].name, Book_prefix) && (book_array[i].is_deleted == false))
             {
                 cout << "Book name : " << book_array[i].name << " Book id : " << book_array[i].id << " \n";
-                is_there_is_a_match =true ;
+                is_there_is_a_match = true;
             }
         }
-        if(!is_there_is_a_match){
-            cout<<"No matches exist for this prefix \n";
+        if (!is_there_is_a_match)
+        {
+            cout << "No matches exist for this prefix \n";
         }
     }
+
+    void get_all_books_in_library_console()
+    {
+        if (curr_book <= 0)
+        {
+            cout << "No Books exist in this library\n";
+            return;
+        }
+        for (int i{0}; i < curr_book; i++)
+        {
+            if (book_array[i].is_deleted == false)
+            {
+                cout << "Book id : " << book_array[i].id << " Book name : " << book_array[i].name << " Book Quantity : " << book_array[i].quantity << " \n";
+            }
+        }
+    }
+
     SearchResult get_books_by_prefix(string Book_prefix)
     {
         SearchResult query_res = SearchResult();
@@ -277,6 +297,40 @@ struct Library_Books
         for (int i{0}; i < curr_book; i++)
         {
             if (is_prefix(book_array[i].name, Book_prefix) && (book_array[i].is_deleted == false))
+            {
+                query_res.add_pointer_to_book(&book_array[i]);
+            }
+        }
+        return query_res;
+    }
+
+    SearchResult get_books_by_prefix(string Book_prefix)
+    {
+        SearchResult query_res = SearchResult();
+        if (curr_book <= 0)
+        {
+            return query_res;
+        }
+        for (int i{0}; i < curr_book; i++)
+        {
+            if (is_prefix(book_array[i].name, Book_prefix) && (book_array[i].is_deleted == false))
+            {
+                query_res.add_pointer_to_book(&book_array[i]);
+            }
+        }
+        return query_res;
+    }
+    
+    SearchResult get_all_books()
+    {
+        SearchResult query_res = SearchResult();
+        if (curr_book <= 0)
+        {
+            return query_res;
+        }
+        for (int i{0}; i < curr_book; i++)
+        {
+            if (book_array[i].is_deleted == false)
             {
                 query_res.add_pointer_to_book(&book_array[i]);
             }
