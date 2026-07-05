@@ -65,23 +65,6 @@ struct Id_Generator
     }
 };
 
-/*
-lets talk a little bit about the requirment :
-rember that app is admin side so admin :
- 1.admin can add user (so the user is allowed to borrow books latter on )
- 2.user can borrow a book
- 3.user can return the book it borrow
- -lets talk more about borrowing a book :
- user can borrow a book from start date with specific duaraion from the start date and duration it should know the return data ,and of course there is a fee
- the fee can be (fully paid - partialy paid- not paid) idk if this is allowed in most libraries but lets be general i guess , and of course we need to make sure the
- quntity of book that user want to borrow is not 0 simple , now lets take a deeper look at building the object borrowed book we can make each user have an array of borrowed books
- that represent all the books that user borrowed this is a solution but from DB prespective bcs relation of user and books are to many to many it make sense to make it as seperate object
- that have user id and book id and i think this make the code much cleaner even if we are not using db lets go with this approach i think after i learn a little about ctime that i will use doing the idea of duration is
- pain in the ass so i decide that admin will make the borrowed day of the book and i actually belive it makes more sense .
- -lets talk more deeply about the return book function when a user return a book what should happen it will only change the state of object borrowed_book to complete or done and it will record
- the data that user return book  (this is of course is much better from simple just delete the borrowed book object bro it allow first of all know to know which books are most borrowed , which user returns book on time
- calclute all the money that come in last month and so on as ml engineer/studen data like this is valiable)
-*/
 struct user
 {
     int id;
@@ -90,6 +73,8 @@ struct user
     string email;
     string address;
     string phone_number;
+    bool is_deleted;
+    bool is_band_from_borrowing;
     user()
     {
         id = -1;
@@ -107,6 +92,20 @@ struct user
         email = _email;
         address = _address;
         phone_number = _phone_number;
+        is_deleted = false;
+        is_band_from_borrowing = false;
+    }
+    void delete_user()
+    {
+        is_deleted = true;
+    }
+    void ban_user()
+    {
+        is_band_from_borrowing = true;
+    }
+    void unban_user()
+    {
+        is_band_from_borrowing = false;
     }
 };
 struct Borrowed_Book
@@ -125,11 +124,8 @@ struct Borrowed_Book
         user_id = -1;
         book_id = -1;
     }
-    // creating this object means that user borrow the book now lets
     Borrowed_Book(int _user_id, int _book_id, int Year, int month, int month_day, float _fees, bool _is_fully_paid, float _what_is_paid = -1)
     {
-        // so we will assume that all the inputs are valid and the constructor will never be called if not all the inputs are valid so there is another function that will be responsible
-        // to call this constructor or start object of type Borrowed_Book
         user_id = _user_id;
         book_id = _book_id;
         // now lets handle time stuff carfully borrow_data should be current data that admin is constructing this object
@@ -142,7 +138,6 @@ struct Borrowed_Book
         datetime.tm_min = 59;
         datetime.tm_sec = 0;
         datetime.tm_isdst = -1;
-        // now we have the correct supposed return that admin enter now conver it to time_t to make it easier to represent .
         supposed_return_date = mktime(&datetime);
         fees = _fees;
         is_fully_paid = _is_fully_paid;
@@ -157,25 +152,6 @@ struct Borrowed_Book
         }
         is_finished = false;
     }
-    // we can impose a behavour here and it is check if the user still have full pay fees or not
-    // it can indicate it pay the remaing money seperate it from book return
-    // why the reason i build this part like this the problem is that you cannot depend on float in comparsion that what i belive bcs of c++ approixmation this is cruatal thing in
-    // banking system i do not it is here in our case but i make is fully paid varaible to make the admin decide when fees is fully paid
-    /*
-    lets think more about fees while i feel like it is uncessary and we just give control to varaible what_is_paid and fees and is_fully_paid full control to the admin but lets
-    do it , we want to make to handle all cases that could happen
-    first at constructor user could fully_paid the fee or partially bad it , if the admin chose fully paid that means he does not need to enter what_is_paid and if admin choose not fully paid
-    he will set the what_is_paid varaible (he must set it) we can impose this by making -1 by defualt . (we already done this )!
-    now admin should be apple to check how much user have to pay if fees is not fully paid (we did this)
-    the admin could set the what_is_paid and fees varaible wrongly this actually get me into fundamental problem i did not think of i think admin should have control over all
-    varaible (almost all) in this project he already have bcs in struct every variable is public by defualt but we should not let him access them immedaitly we should put guard around them
-    for example national number and email have clear constrains to be written and phone number too and and , but i did not take this as consiern in this project
-    any way in this project i will let him only update the what_is_paid varaible
-    i also choice that if admin update the _what_is_paid he need to click it is fully paid or we maybe do another change that admin can do 2 things
-    1.update the what is paid and if it become eql to fees it fully_paid varaible become true and notify admin also admin can add money to already what is paid and
-    if it becomeq eql to fees it updated it self to true and notify him is this good or over engineering
-    the admin can click fully paid button(function and it will just mark user as fully paid and _what_is_paid eql to fees make it easy and short cut )
-    */
     bool get_is_fully_paid()
     {
         return is_fully_paid;
@@ -188,7 +164,6 @@ struct Borrowed_Book
         }
         return fees - what_is_paid;
     }
-    // we will do both increment pay and full update what is paid and of admin add money to user what is paid and it become
     bool increment_what_is_paid(float money)
     {
         if (is_fully_paid || money < 0 || (what_is_paid + money) > fees)
@@ -202,9 +177,9 @@ struct Borrowed_Book
         }
         return true;
     }
-    // i will actually remove the set function bcs it increase complexity for nothing and it does not really represent reallity i put it for another reason i will tell you why
+
     bool pay_full_fees()
-    { // i will keep bcs i think it is a cool feature for admin in busy day of work
+    {
         if (!is_fully_paid)
         {
             is_fully_paid = true;
@@ -215,7 +190,6 @@ struct Borrowed_Book
     }
     bool user_return_book()
     {
-        // now here mean that user return this as finished aka user return the book
         if (!is_fully_paid)
         {
             return false;
@@ -302,39 +276,69 @@ struct SearchResult
 struct Library_Books
 {
     int MAX_Books_Number;
+    int MAX_Users_Number;
+    int MAX_Borrowed_Books_Number;
     int curr_book;
+    int curr_user;
+    int Number_of_borrowed_transaction;
     int library_id;
     string library_name;
-    Id_Generator id_generator;
+    Id_Generator book_id_generator;
+    Id_Generator user_id_generator;
     Book *book_array;
+    user *library_users_array;
+    Borrowed_Book *library_borrowed_books;
 
     Library_Books()
     {
         MAX_Books_Number = -1;
+        MAX_Users_Number = -1;
+        MAX_Borrowed_Books_Number = -1;
         curr_book = -1;
+        curr_user = -1;
+        Number_of_borrowed_transaction = -1;
         library_id = -1;
         library_name = "";
         book_array = nullptr;
+        library_users_array = nullptr;
+        library_borrowed_books = nullptr;
     }
 
-    Library_Books(int _MAX_Books_Number, int _library_id, string _library_name)
+    Library_Books(int _MAX_Books_Number, int _MAX_Users_Number, int _MAX_Borrowed_Books_Number, int _library_id, string _library_name)
     {
         MAX_Books_Number = _MAX_Books_Number;
+        MAX_Users_Number = _MAX_Users_Number;
+        MAX_Borrowed_Books_Number = _MAX_Borrowed_Books_Number;
         curr_book = 0;
+        curr_user = 0;
+        Number_of_borrowed_transaction = 0;
         library_id = _library_id;
         library_name = _library_name;
         book_array = new Book[MAX_Books_Number]{};
+        // we must also apply rule of three for those 2 new arrays
+        library_users_array = new user[MAX_Users_Number]{};
+        library_borrowed_books = new Borrowed_Book[MAX_Borrowed_Books_Number]{};
     }
 
-    ~Library_Books() { delete[] book_array; }
+    ~Library_Books()
+    {
+        delete[] book_array;
+        delete[] library_users_array;
+        delete[] library_borrowed_books;
+    }
 
     Library_Books(const Library_Books &other)
     {
         MAX_Books_Number = other.MAX_Books_Number;
+        MAX_Users_Number = other.MAX_Users_Number;
+        MAX_Borrowed_Books_Number = other.MAX_Borrowed_Books_Number;
         curr_book = other.curr_book;
+        curr_user = other.curr_user;
+        Number_of_borrowed_transaction = other.Number_of_borrowed_transaction;
         library_id = other.library_id;
         library_name = other.library_name;
-        id_generator = other.id_generator;
+        book_id_generator = other.book_id_generator;
+        user_id_generator = other.user_id_generator;
         if (other.book_array == nullptr)
         {
             book_array = nullptr;
@@ -347,6 +351,30 @@ struct Library_Books
                 book_array[i] = other.book_array[i];
             }
         }
+        if (other.library_users_array == nullptr)
+        {
+            library_users_array = nullptr;
+        }
+        else
+        {
+            library_users_array = new user[MAX_Users_Number];
+            for (int i{0}; i < curr_user; i++)
+            {
+                library_users_array[i] = other.library_users_array[i];
+            }
+        }
+        if (other.library_borrowed_books == nullptr)
+        {
+            library_borrowed_books = nullptr;
+        }
+        else
+        {
+            library_borrowed_books = new Borrowed_Book[MAX_Borrowed_Books_Number];
+            for (int i{0}; i < Number_of_borrowed_transaction; i++)
+            {
+                library_borrowed_books[i] = other.library_borrowed_books[i];
+            }
+        }
     }
 
     Library_Books &operator=(const Library_Books &other)
@@ -356,15 +384,32 @@ struct Library_Books
             return *this;
         }
         this->MAX_Books_Number = other.MAX_Books_Number;
+        this->MAX_Users_Number = other.MAX_Users_Number;
+        this->MAX_Borrowed_Books_Number = other.MAX_Borrowed_Books_Number;
         this->curr_book = other.curr_book;
+        this->curr_user = other.curr_user;
+        this->Number_of_borrowed_transaction = other.Number_of_borrowed_transaction;
         this->library_id = other.library_id;
         this->library_name = other.library_name;
-        this->id_generator = other.id_generator;
+        this->book_id_generator = other.book_id_generator;
+        this->user_id_generator = other.user_id_generator;
         delete[] this->book_array;
         this->book_array = new Book[MAX_Books_Number];
         for (int i{0}; i < curr_book; i++)
         {
             this->book_array[i] = other.book_array[i];
+        }
+        delete[] this->library_users_array;
+        this->library_users_array = new user[MAX_Users_Number];
+        for (int i{0}; i < curr_user; i++)
+        {
+            this->library_users_array[i] = other.library_users_array[i];
+        }
+        delete[] this->library_borrowed_books;
+        this->library_borrowed_books = new Borrowed_Book[MAX_Borrowed_Books_Number];
+        for (int i{0}; i < Number_of_borrowed_transaction; i++)
+        {
+            this->library_borrowed_books[i] = other.library_borrowed_books[i];
         }
         return *this;
     }
@@ -380,7 +425,7 @@ struct Library_Books
         {
             return false;
         }
-        book_array[curr_book] = Book(id_generator.generate_id(), name, quantity);
+        book_array[curr_book] = Book(book_id_generator.generate_id(), name, quantity);
         curr_book++;
         return true;
     }
@@ -466,22 +511,6 @@ struct Library_Books
         return query_res;
     }
 
-    SearchResult get_books_by_prefix(string Book_prefix)
-    {
-        SearchResult query_res = SearchResult();
-        if (curr_book <= 0)
-        {
-            return query_res;
-        }
-        for (int i{0}; i < curr_book; i++)
-        {
-            if (is_prefix(book_array[i].name, Book_prefix) && (book_array[i].is_deleted == false))
-            {
-                query_res.add_pointer_to_book(&book_array[i]);
-            }
-        }
-        return query_res;
-    }
     SearchResult get_all_books()
     {
         SearchResult query_res = SearchResult();
@@ -497,6 +526,113 @@ struct Library_Books
             }
         }
         return query_res;
+    }
+    // lets write the function add user
+    bool Add_User(string name, string national_id, string email, string address, string phone_number)
+    {
+        /*
+        1.check if library reach is limited number of users(array cannot have more)
+        2.create user object then add to array
+        -care : this function should be resposible about checking that user informations are correct before calling constructor .
+        */
+        if (MAX_Users_Number == curr_user)
+        {
+            return false;
+        }
+        // generate id
+        int user_id = user_id_generator.generate_id();
+        library_users_array[curr_user] = user(user_id, name, national_id, email, address, phone_number);
+        curr_user++;
+        return true;
+    }
+    bool borrow_book(int user_id, int book_id, int Year, int month, int month_day, float fees, bool is_fully_paid, float what_is_paid = -1)
+    {
+        /*
+        lets focus on logic of this function first we need to check :
+        1.book id exist and it is not deleted and quntitu is larger thatn 0 (will not decrement quntity here ).
+        2.user exist and not deleted or banned .
+        --we must check input is valid before calling constructor .
+        3.check that year , month , month_day are not illogical or wrong ex : year : 3200 (not wrong but illogical there must be upper limit for library you cannot borrow book for more than 3 month or something ) and month within 1-12 , days 0-31 (day maybe more complicated bcs range of day depend on month) i will skip this part
+        4.check fees is not negative number , then we need to check is fully paid or not if is fully paid is true we do not care about what_is_paid other wise if is_fully_paid is false we need to check that what is paid is pos and lower that fees
+        5.construct object , put it in array and decrement quntity .
+        */
+        if (Number_of_borrowed_transaction == MAX_Borrowed_Books_Number)
+        {
+            return false;
+        }
+        bool book_does_not_exist{true};
+        bool is_book_deleted{true};
+        bool is_book_not_avalaible{true};
+        int found_book_idx{-1};
+        for (int i{0}; i < curr_book; i++)
+        {
+            if (book_array[i].id == book_id)
+            {
+                book_does_not_exist = false;
+                found_book_idx = i;
+                if (book_array[i].is_deleted == false)
+                {
+                    is_book_deleted = false;
+                    if (book_array[i].quantity > 0)
+                    {
+                        is_book_not_avalaible = false;
+                    }
+                }
+                break;
+            }
+        }
+        if (book_does_not_exist || is_book_deleted || is_book_not_avalaible)
+        {
+            return false;
+        }
+        bool user_does_not_exist{true};
+        bool is_user_deleted{true};
+        bool is_user_banned{true};
+        for (int i{0}; i < curr_user; i++)
+        {
+            if (library_users_array[i].id == user_id)
+            {
+                user_does_not_exist = false;
+                if (library_users_array[i].is_deleted == false)
+                {
+                    is_user_deleted = false;
+                    if (library_users_array[i].is_band_from_borrowing == false)
+                    {
+                        is_user_banned = false;
+                    }
+                }
+                break;
+            }
+        }
+        if (user_does_not_exist || is_user_deleted || is_user_banned)
+        {
+            return false;
+        }
+        // ceck inpout is valid
+        bool is_input_valid{true};
+        if (fees < 0)
+        {
+            is_input_valid = false;
+        }
+        else
+        {
+            if (!is_fully_paid)
+            {
+                // here i need to check the what_is_paid too
+                if (what_is_paid < 0 || what_is_paid > fees)
+                {
+                    is_input_valid = false;
+                }
+            }
+        }
+        if (!is_input_valid)
+        {
+            return false;
+        }
+        library_borrowed_books[Number_of_borrowed_transaction] = Borrowed_Book(user_id, book_id, Year, month, month_day, fees, is_fully_paid, what_is_paid);
+        Number_of_borrowed_transaction++;
+        book_array[found_book_idx].quantity--;
+        return true;
     }
 };
 

@@ -86,16 +86,6 @@ How real systems remove the pain (event sourcing / immutable ledger):
   opposite," and every dependent value recomputes itself automatically. No
   cascading rollback, because nothing was ever manually set.
 
-**Important correction to my own words:** in MY version these are **stored**
-attributes, not derived. That's exactly why undo is manual here. The lesson is
-knowing that a real system would make them *derived* from an immutable log — and
-that doing so is why undo would be trivial. I'm choosing stored + a manual
-correction for a practice app; I'd reach for the ledger the moment it was real
-money.
-
-(Related name I don't need here: **idempotency** — giving each payment a unique
-key so a double-click / retry can't charge twice.)
-
 ---
 
 ## Access control seam (noticed, not fully built)
