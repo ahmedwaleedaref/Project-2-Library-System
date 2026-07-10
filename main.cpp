@@ -272,6 +272,200 @@ struct SearchResult
         delete[] Pointer_to_pointer_array;
     }
 };
+// lets change
+struct SearchResult_User
+{
+    user **Pointer_to_pointer_array;
+    int count;
+    int max_size;
+    SearchResult_User()
+    {
+        count = 0;
+        max_size = 1;
+        Pointer_to_pointer_array = new user *[max_size];
+    }
+    bool resize_to_double()
+    {
+        if (max_size == INT_MAX)
+        {
+            return false;
+        }
+        max_size *= 2;
+        user **new_Pointer_to_pointer_array = new user *[max_size];
+        for (int i = 0; i < max_size / 2; i++)
+        {
+            new_Pointer_to_pointer_array[i] = Pointer_to_pointer_array[i];
+        }
+        delete[] Pointer_to_pointer_array;
+        Pointer_to_pointer_array = new_Pointer_to_pointer_array;
+        return true;
+    }
+    bool add_pointer_to_book(user *User_ptr)
+    {
+        if (count == max_size)
+        {
+            bool is_every_thing_is_ok = resize_to_double();
+            if (!is_every_thing_is_ok)
+            {
+                return false;
+            }
+        }
+        Pointer_to_pointer_array[count] = User_ptr;
+        count++;
+        return true;
+    }
+    SearchResult_User(SearchResult_User const &other)
+    {
+        this->max_size = other.max_size;
+        this->count = other.count;
+        this->Pointer_to_pointer_array = new user *[this->max_size];
+        for (int i{0}; i < other.count; i++)
+        {
+            this->Pointer_to_pointer_array[i] = other.Pointer_to_pointer_array[i];
+        }
+    }
+    SearchResult_User &operator=(SearchResult_User const &other)
+    {
+        if (this == &other)
+        {
+            return *this;
+        }
+        delete[] this->Pointer_to_pointer_array;
+        this->max_size = other.max_size;
+        this->count = other.count;
+        this->Pointer_to_pointer_array = new user *[this->max_size];
+        for (int i{0}; i < other.count; i++)
+        {
+            this->Pointer_to_pointer_array[i] = other.Pointer_to_pointer_array[i];
+        }
+        return *this;
+    }
+    ~SearchResult_User()
+    {
+        delete[] Pointer_to_pointer_array;
+    }
+};
+// a DTO for query 2 and 3
+struct DTO_User_Borrowed_Book
+{
+    string Book_Name;
+    time_t borrow_date;
+    time_t supposed_return_date;
+    bool is_late;
+    float fees;
+    float what_is_paid;
+    float what_is_remaning_to_pay;
+    bool is_fully_paid;
+    DTO_User_Borrowed_Book()
+    {
+        Book_Name = "";
+        fees = -1;
+        what_is_paid = -1;
+        is_late = false;
+    }
+    DTO_User_Borrowed_Book(string _Book_Name, time_t _borrow_date, time_t _supposed_return_date, float _fees, float _what_is_paid, bool _is_fully_paid)
+    {
+        Book_Name = _Book_Name;
+        borrow_date = _borrow_date;
+        supposed_return_date = _supposed_return_date;
+        fees = _fees;
+        what_is_paid = _what_is_paid;
+        is_fully_paid = _is_fully_paid;
+        what_is_remaning_to_pay = calc_remaning_to_pay();
+        is_late = ini_is_late();
+    }
+    bool ini_is_late()
+    {
+        time_t curr_time{time(NULL)};
+        // this is allowed ?
+        if (curr_time > supposed_return_date)
+        {
+            return true;
+        }
+        return false;
+    }
+    float calc_remaning_to_pay()
+    {
+        if (!is_fully_paid)
+        {
+            return fees - what_is_paid;
+        }
+        return 0;
+    }
+};
+// now we need vector<SearchResult_DTO>
+struct SearchResult_DTO_User_Borrowed_Book
+{
+    DTO_User_Borrowed_Book *Pointer_to_pointer_array;
+    int count;
+    int max_size;
+    SearchResult_DTO_User_Borrowed_Book()
+    {
+        count = 0;
+        max_size = 1;
+        Pointer_to_pointer_array = new DTO_User_Borrowed_Book[max_size];
+    }
+    bool resize_to_double()
+    {
+        if (max_size == INT_MAX)
+        {
+            return false;
+        }
+        max_size *= 2;
+        DTO_User_Borrowed_Book *new_Pointer_to_pointer_array = new DTO_User_Borrowed_Book[max_size];
+        for (int i = 0; i < max_size / 2; i++)
+        {
+            new_Pointer_to_pointer_array[i] = Pointer_to_pointer_array[i];
+        }
+        delete[] Pointer_to_pointer_array;
+        Pointer_to_pointer_array = new_Pointer_to_pointer_array;
+        return true;
+    }
+    bool add_pointer_to_book(DTO_User_Borrowed_Book borrowed_book_obj)
+    {
+        if (count == max_size)
+        {
+            bool is_every_thing_is_ok = resize_to_double();
+            if (!is_every_thing_is_ok)
+            {
+                return false;
+            }
+        }
+        Pointer_to_pointer_array[count] = borrowed_book_obj;
+        count++;
+        return true;
+    }
+    SearchResult_DTO_User_Borrowed_Book(SearchResult_DTO_User_Borrowed_Book const &other)
+    {
+        this->max_size = other.max_size;
+        this->count = other.count;
+        this->Pointer_to_pointer_array = new DTO_User_Borrowed_Book[this->max_size];
+        for (int i{0}; i < other.count; i++)
+        {
+            this->Pointer_to_pointer_array[i] = other.Pointer_to_pointer_array[i];
+        }
+    }
+    SearchResult_DTO_User_Borrowed_Book &operator=(SearchResult_DTO_User_Borrowed_Book const &other)
+    {
+        if (this == &other)
+        {
+            return *this;
+        }
+        delete[] this->Pointer_to_pointer_array;
+        this->max_size = other.max_size;
+        this->count = other.count;
+        this->Pointer_to_pointer_array = new DTO_User_Borrowed_Book[this->max_size];
+        for (int i{0}; i < other.count; i++)
+        {
+            this->Pointer_to_pointer_array[i] = other.Pointer_to_pointer_array[i];
+        }
+        return *this;
+    }
+    ~SearchResult_DTO_User_Borrowed_Book()
+    {
+        delete[] Pointer_to_pointer_array;
+    }
+};
 
 struct Library_Books
 {
@@ -608,7 +802,7 @@ struct Library_Books
         {
             return false;
         }
-        // ceck inpout is valid
+        // ceck input is valid
         bool is_input_valid{true};
         if (fees < 0)
         {
