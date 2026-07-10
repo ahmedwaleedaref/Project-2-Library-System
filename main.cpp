@@ -285,6 +285,7 @@ i will add is finished and real_return_data it make more sense this bcs now this
 struct DTO_User_Borrowed_Book
 {
     string Book_Name;
+    string User_name;
     time_t borrow_date;
     time_t supposed_return_date;
     time_t real_return_date;
@@ -302,9 +303,10 @@ struct DTO_User_Borrowed_Book
         what_is_paid = -1;
         is_late = false;
     }
-    DTO_User_Borrowed_Book(string _Book_Name, time_t _borrow_date, time_t _supposed_return_date, time_t _real_return_date, float _fees, float _what_is_paid, bool _is_fully_paid, bool _is_finished)
+    DTO_User_Borrowed_Book(string _Book_Name, string _User_name, time_t _borrow_date, time_t _supposed_return_date, time_t _real_return_date, float _fees, float _what_is_paid, bool _is_fully_paid, bool _is_finished)
     {
         Book_Name = _Book_Name;
+        User_name = _User_name;
         borrow_date = _borrow_date;
         supposed_return_date = _supposed_return_date;
         real_return_date = _real_return_date;
@@ -607,6 +609,19 @@ struct Library_Books
         curr_user++;
         return true;
     }
+    int get_user_idx_by_id(int user_id)
+    {
+        int user_idx{-1};
+        for (int i{0}; i < curr_user; i++)
+        {
+            if (library_users_array[i].id == user_id)
+            {
+                user_idx = i;
+                break;
+            }
+        }
+        return user_idx;
+    }
     bool borrow_book(int user_id, int book_id, int Year, int month, int month_day, float fees, bool is_fully_paid, float what_is_paid = -1)
     {
         /*
@@ -696,9 +711,313 @@ struct Library_Books
         book_array[found_book_idx].quantity--;
         return true;
     }
+    bool user_add_money_to_a_loan(int book_id, int user_id, float money)
+    {
+        // find loan
+        for (int i{}; i < Number_of_borrowed_transaction; i++)
+        {
+            if (library_borrowed_books[i].book_id == book_id && library_borrowed_books[i].user_id == user_id && library_borrowed_books[i].is_finished == false)
+            {
+                if (library_borrowed_books[i].increment_what_is_paid(money))
+                {
+                    return true;
+                }
+                break;
+            }
+        }
+        // this means the loan does not exist or thier someting wrong with addition
+        return false;
+    }
+    bool user_return_book(int user_id, int book_id)
+    {
+        // make sure that user exist and book exsit and borrow also exist and the borrow it self is not finished bcs this may lead into miss quntity of books if we simply ignore that
+        bool book_does_not_exist{true};
+        bool is_book_deleted{true};
+        int found_book_idx{-1};
+        for (int i{0}; i < curr_book; i++)
+        {
+            if (book_array[i].id == book_id)
+            {
+                book_does_not_exist = false;
+                found_book_idx = i;
+                if (book_array[i].is_deleted == false)
+                {
+                    is_book_deleted = false;
+                }
+                break;
+            }
+        }
+        if (book_does_not_exist || is_book_deleted)
+        {
+            return false;
+        }
+        bool user_does_not_exist{true};
+        bool is_user_deleted{true};
+        bool is_user_banned{true};
+        for (int i{0}; i < curr_user; i++)
+        {
+            if (library_users_array[i].id == user_id)
+            {
+                user_does_not_exist = false;
+                if (library_users_array[i].is_deleted == false)
+                {
+                    is_user_deleted = false;
+                    if (library_users_array[i].is_band_from_borrowing == false)
+                    {
+                        is_user_banned = false;
+                    }
+                }
+                break;
+            }
+        }
+        // there is a note here can user get ban or deleted even if he borrow a book and he did not return it ? this is a tricky question that will seems not very easy to handle and it depend on library system not general thing i believe .
+        if (user_does_not_exist || is_user_deleted || is_user_banned)
+        {
+            return false;
+        }
+        bool does_transaction_not_exist{true};
+        bool is_transaction_finished{true};
+        int transaction_idx{-1};
+        for (int i{0}; i < Number_of_borrowed_transaction; i++)
+        {
+            if (library_borrowed_books[i].book_id == book_id && library_borrowed_books[i].user_id == user_id)
+            {
+                does_transaction_not_exist = false;
+                if (library_borrowed_books[i].is_finished == false)
+                {
+                    is_transaction_finished = false;
+                }
+                transaction_idx = i;
+                break;
+            }
+        }
+        if (does_transaction_not_exist || is_transaction_finished)
+        {
+            return false;
+        }
+        /*
+        lets start with the logic we will mark transaction as finished and set the real_return time and increase the quntity of the book .
+        */
+        if (library_borrowed_books[transaction_idx].user_return_book() == false)
+        {
+            return false;
+        }
+        book_array[found_book_idx].quantity++;
+        return true;
+    }
+    // lets write 4 queries :
+    /*
+    query 1 : books borrowed by user we should return
+    */
+    Dynamic_arr<DTO_User_Borrowed_Book> get_user_active_loans(int user_id)
+    {
+        // make sure user exist you should be apple to see loan of deleted or banned user (this is whole idea behinde every thing is recorded) but a deleted or banned user can have an active loans hmm
+        bool user_does_not_exist{true};
+        bool is_user_deleted{true};
+        for (int i{0}; i < curr_user; i++)
+        {
+            if (library_users_array[i].id == user_id)
+            {
+                user_does_not_exist = false;
+                if (library_users_array[i].is_deleted == false)
+                {
+                    is_user_deleted = false;
+                }
+                break;
+            }
+        }
+        if (user_does_not_exist || is_user_deleted)
+        {
+            return Dynamic_arr<DTO_User_Borrowed_Book>{};
+        }
+        Dynamic_arr<DTO_User_Borrowed_Book> res{};
+        // search all loans that have id of this user and not finished
+        for (int i{}; i < Number_of_borrowed_transaction; i++)
+        {
+            if (library_borrowed_books[i].user_id == user_id && library_borrowed_books[i].is_finished == false)
+            {
+                // we need to get book nane
+                int book_idx = get_book_index_by_id(library_borrowed_books[i].book_id);
+                string book_name = book_array[book_idx].name;
+                // create a DTO_User variable and add
+                DTO_User_Borrowed_Book user_borrow_instance{DTO_User_Borrowed_Book(book_name,
+                                                                                   "",
+                                                                                   library_borrowed_books[i].borrow_date,
+                                                                                   library_borrowed_books[i].supposed_return_date,
+                                                                                   library_borrowed_books[i].real_return_data,
+                                                                                   library_borrowed_books[i].fees,
+                                                                                   library_borrowed_books[i].what_is_paid,
+                                                                                   library_borrowed_books[i].is_fully_paid,
+                                                                                   library_borrowed_books[i].is_finished)};
+                res.add_element(user_borrow_instance);
+            }
+        }
+        return res;
+    }
+    Dynamic_arr<DTO_User_Borrowed_Book> get_user_history_loans(int user_id)
+    {
+        // make sure user exist you should be apple to see loan of deleted or banned user (this is whole idea behinde every thing is recorded) but a deleted or banned user can have an active loans hmm
+        // here deleted user or not banned or not does not matter , just it must exist
+        bool user_does_not_exist{true};
+        for (int i{0}; i < curr_user; i++)
+        {
+            if (library_users_array[i].id == user_id)
+            {
+                user_does_not_exist = false;
+                break;
+            }
+        }
+        if (user_does_not_exist)
+        {
+            return Dynamic_arr<DTO_User_Borrowed_Book>{};
+        }
+        Dynamic_arr<DTO_User_Borrowed_Book> res{};
+        // search all loans that have id of this user and not finished
+        for (int i{}; i < Number_of_borrowed_transaction; i++)
+        {
+            if (library_borrowed_books[i].user_id == user_id)
+            {
+                // we need to get book nane
+                int book_idx = get_book_index_by_id(library_borrowed_books[i].book_id);
+                string book_name = book_array[book_idx].name;
+                // create a DTO_User variable and add
+                DTO_User_Borrowed_Book user_borrow_instance{DTO_User_Borrowed_Book(book_name,
+                                                                                   string(""),
+                                                                                   library_borrowed_books[i].borrow_date,
+                                                                                   library_borrowed_books[i].supposed_return_date,
+                                                                                   library_borrowed_books[i].real_return_data,
+                                                                                   library_borrowed_books[i].fees,
+                                                                                   library_borrowed_books[i].what_is_paid,
+                                                                                   library_borrowed_books[i].is_fully_paid,
+                                                                                   library_borrowed_books[i].is_finished)};
+                res.add_element(user_borrow_instance);
+            }
+        }
+        return res;
+    }
+    /*
+    query 2 list all users who borrowed a book
+    */
+    Dynamic_arr<user *> get_all_user_who_actively_borrow_a_book()
+    {
+        Dynamic_arr<user *> res{};
+        for (int i{}; i < Number_of_borrowed_transaction; i++)
+        {
+            if (library_borrowed_books[i].is_finished == false)
+            {
+                /*
+                from user id get it is index from index you have obj so you can get the address
+                */
+                int user_idx{get_user_idx_by_id(library_borrowed_books[i].user_id)};
+                if (user_idx == -1)
+                {
+                    // i do not think this is even possible bcs this means that there is a borrow instance wih non-existence user which is not possible bcs i ckeck if user exist or not before borrow
+                    continue;
+                }
+                res.add_element(&library_users_array[user_idx]);
+            }
+        }
+        return res;
+    }
+    Dynamic_arr<user *> get_all_user_in_system()
+    {
+        Dynamic_arr<user *> res{};
+        for (int i{}; i < curr_user; i++)
+        {
+            res.add_element(&library_users_array[i]);
+        }
+        return res;
+    }
+    /*
+    query 3 : same as query 1 but from a book prespective but thier a point here we need to return name of user also instead of the book name
+    */
+    Dynamic_arr<DTO_User_Borrowed_Book> get_active_loans_for_certain_book(int book_id)
+    {
+        // make sure book exist and it is not deleted
+        Dynamic_arr<DTO_User_Borrowed_Book> res{};
+        for (int i{}; i < Number_of_borrowed_transaction; i++)
+        {
+            if (library_borrowed_books[i].book_id == book_id && library_borrowed_books[i].is_finished == false)
+            {
+                int user_idx{get_user_idx_by_id(library_borrowed_books[i].user_id)};
+                if (user_idx == -1)
+                {
+                    continue;
+                }
+                string user_name{library_users_array[user_idx].name};
+                DTO_User_Borrowed_Book user_borrow_instance{DTO_User_Borrowed_Book("",
+                                                                                   user_name,
+                                                                                   library_borrowed_books[i].borrow_date,
+                                                                                   library_borrowed_books[i].supposed_return_date,
+                                                                                   library_borrowed_books[i].real_return_data,
+                                                                                   library_borrowed_books[i].fees,
+                                                                                   library_borrowed_books[i].what_is_paid,
+                                                                                   library_borrowed_books[i].is_fully_paid,
+                                                                                   library_borrowed_books[i].is_finished)};
+                res.add_element(user_borrow_instance);
+            }
+        }
+        return res;
+    }
+    Dynamic_arr<DTO_User_Borrowed_Book> get_all_loans_for_certain_book(int book_id)
+    {
+        // make sure book exist and it is not deleted
+        Dynamic_arr<DTO_User_Borrowed_Book> res{};
+        for (int i{}; i < Number_of_borrowed_transaction; i++)
+        {
+            if (library_borrowed_books[i].book_id == book_id)
+            {
+                int user_idx{get_user_idx_by_id(library_borrowed_books[i].user_id)};
+                if (user_idx == -1)
+                {
+                    continue;
+                }
+                string user_name{library_users_array[user_idx].name};
+                DTO_User_Borrowed_Book user_borrow_instance{DTO_User_Borrowed_Book("",
+                                                                                   user_name,
+                                                                                   library_borrowed_books[i].borrow_date,
+                                                                                   library_borrowed_books[i].supposed_return_date,
+                                                                                   library_borrowed_books[i].real_return_data,
+                                                                                   library_borrowed_books[i].fees,
+                                                                                   library_borrowed_books[i].what_is_paid,
+                                                                                   library_borrowed_books[i].is_fully_paid,
+                                                                                   library_borrowed_books[i].is_finished)};
+                res.add_element(user_borrow_instance);
+            }
+        }
+        return res;
+    }
+    /*
+    query 4 : all borrowed books
+    */
+    Dynamic_arr<Book *> get_all_borrowed_book(int book_id)
+    {
+        /*
+        to make this correct iterate in the book_array and just check if it have a instance of borrow_book that is not finished
+        doing in this order will make your life easier
+        */
+        Dynamic_arr<Book *> res{};
+        for (int i{}; i < curr_book; i++)
+        {
+            if (book_array[i].is_deleted == false)
+            {
+                // go find if this book
+                for (int j{}; j < Number_of_borrowed_transaction; j++)
+                {
+                    if (library_borrowed_books[j].book_id == book_array[i].id && library_borrowed_books[j].is_finished == false)
+                    {
+                        res.add_element(&book_array[i]);
+                        break;
+                    }
+                }
+            }
+        }
+        return res;
+    }
 };
 
 int main()
 {
+
     return 0;
 }
