@@ -1,4 +1,3 @@
-#include <stdio.h>
 #include <iostream>
 #include <climits>
 #include <ctime>
@@ -83,6 +82,8 @@ struct user
         email = "";
         address = "";
         phone_number = "";
+        is_deleted = false;
+        is_band_from_borrowing = false;
     }
     user(int _id, string _name, string _national_id, string _email, string _address, string _phone_number)
     {
@@ -123,6 +124,13 @@ struct Borrowed_Book
     {
         user_id = -1;
         book_id = -1;
+        borrow_date = 0;
+        supposed_return_date = 0;
+        real_return_data = 0;
+        fees = -1;
+        what_is_paid = -1;
+        is_fully_paid = false;
+        is_finished = false;
     }
     Borrowed_Book(int _user_id, int _book_id, int Year, int month, int month_day, float _fees, bool _is_fully_paid, float _what_is_paid = -1)
     {
@@ -139,6 +147,7 @@ struct Borrowed_Book
         datetime.tm_sec = 0;
         datetime.tm_isdst = -1;
         supposed_return_date = mktime(&datetime);
+        real_return_data = 0;
         fees = _fees;
         is_fully_paid = _is_fully_paid;
         if (is_fully_paid == false)
@@ -299,9 +308,16 @@ struct DTO_User_Borrowed_Book
     DTO_User_Borrowed_Book()
     {
         Book_Name = "";
+        User_name = "";
+        borrow_date = 0;
+        supposed_return_date = 0;
+        real_return_date = 0;
+        is_late = false;
         fees = -1;
         what_is_paid = -1;
-        is_late = false;
+        what_is_remaning_to_pay = 0;
+        is_fully_paid = false;
+        is_finished = false;
     }
     DTO_User_Borrowed_Book(string _Book_Name, string _User_name, time_t _borrow_date, time_t _supposed_return_date, time_t _real_return_date, float _fees, float _what_is_paid, bool _is_fully_paid, bool _is_finished)
     {
@@ -517,6 +533,12 @@ struct Library_Books
         {
             return false;
         }
+        // symmetric with rule 2: cannot delete a book that still has copies out
+        // on an active loan -- deletion must not erase a party to an active loan.
+        if (has_active_loan_for_book(Book_id))
+        {
+            return false;
+        }
         book_array[idx].is_deleted = true;
         return true;
     }
@@ -609,6 +631,54 @@ struct Library_Books
         curr_user++;
         return true;
     }
+    /*
+    rule 2: cannot delete a user who still has an active loan. a loan means a
+    physical book is in their hands; deleting the borrower would leave the book
+    checked out to a "gone" user. soft-delete only marks is_deleted, so this keeps
+    "deleted" meaning what it says.
+    */
+    bool delete_user(int user_id)
+    {
+        int idx{get_user_idx_by_id(user_id)};
+        if (idx == -1 || library_users_array[idx].is_deleted)
+        {
+            return false;
+        }
+        if (has_active_loan_for_user(user_id))
+        {
+            return false;
+        }
+        library_users_array[idx].delete_user();
+        return true;
+    }
+    /*
+    ban / unban are pure ADMIN actions (admin decides when). they are deliberately
+    NOT coupled to fees or loans: banning a user with an active loan is allowed
+    (it only stops NEW borrows), and unban is free. the admin can look at what a
+    user owes and decide, but the system does not force that coupling. note also:
+    payment (user_add_money_to_a_loan) is intentionally allowed regardless of ban
+    status -- money owed must always be payable, or a banned user could deadlock.
+    */
+    bool ban_user(int user_id)
+    {
+        int idx{get_user_idx_by_id(user_id)};
+        if (idx == -1 || library_users_array[idx].is_deleted)
+        {
+            return false;
+        }
+        library_users_array[idx].ban_user();
+        return true;
+    }
+    bool unban_user(int user_id)
+    {
+        int idx{get_user_idx_by_id(user_id)};
+        if (idx == -1 || library_users_array[idx].is_deleted)
+        {
+            return false;
+        }
+        library_users_array[idx].unban_user();
+        return true;
+    }
     int get_user_idx_by_id(int user_id)
     {
         int user_idx{-1};
@@ -622,70 +692,69 @@ struct Library_Books
         }
         return user_idx;
     }
+    /*
+    shared "is there an active loan?" helpers. one place answers this question so
+    delete_user, delete_book, and return all use the SAME logic instead of three
+    hand-copied scans (which is where copy-paste bugs kept coming from).
+    an active loan = a recorded loan that is not finished (book still out).
+    */
+    bool has_active_loan_for_user(int user_id)
+    {
+        for (int i{0}; i < Number_of_borrowed_transaction; i++)
+        {
+            if (library_borrowed_books[i].user_id == user_id && library_borrowed_books[i].is_finished == false)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+    bool has_active_loan_for_book(int book_id)
+    {
+        for (int i{0}; i < Number_of_borrowed_transaction; i++)
+        {
+            if (library_borrowed_books[i].book_id == book_id && library_borrowed_books[i].is_finished == false)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
     bool borrow_book(int user_id, int book_id, int Year, int month, int month_day, float fees, bool is_fully_paid, float what_is_paid = -1)
     {
         /*
-        lets focus on logic of this function first we need to check :
-        1.book id exist and it is not deleted and quntitu is larger thatn 0 (will not decrement quntity here ).
-        2.user exist and not deleted or banned .
-        --we must check input is valid before calling constructor .
-        3.check that year , month , month_day are not illogical or wrong ex : year : 3200 (not wrong but illogical there must be upper limit for library you cannot borrow book for more than 3 month or something ) and month within 1-12 , days 0-31 (day maybe more complicated bcs range of day depend on month) i will skip this part
-        4.check fees is not negative number , then we need to check is fully paid or not if is fully paid is true we do not care about what_is_paid other wise if is_fully_paid is false we need to check that what is paid is pos and lower that fees
-        5.construct object , put it in array and decrement quntity .
+        validate first, mutate last. checks in order:
+        1. capacity for a new transaction
+        2. book exists, not deleted, has an available copy   (finder + guards)
+        3. user exists, not deleted, not banned              (finder + guards)
+        4. fee inputs are valid
+        then: construct the loan, record it, decrement quantity.
         */
         if (Number_of_borrowed_transaction == MAX_Borrowed_Books_Number)
         {
             return false;
         }
-        bool book_does_not_exist{true};
-        bool is_book_deleted{true};
-        bool is_book_not_avalaible{true};
-        int found_book_idx{-1};
-        for (int i{0}; i < curr_book; i++)
-        {
-            if (book_array[i].id == book_id)
-            {
-                book_does_not_exist = false;
-                found_book_idx = i;
-                if (book_array[i].is_deleted == false)
-                {
-                    is_book_deleted = false;
-                    if (book_array[i].quantity > 0)
-                    {
-                        is_book_not_avalaible = false;
-                    }
-                }
-                break;
-            }
-        }
-        if (book_does_not_exist || is_book_deleted || is_book_not_avalaible)
+        // 2. book: neutral finder answers "where is it?", caller applies "do I accept it?"
+        int found_book_idx{get_book_index_by_id(book_id)};
+        if (found_book_idx == -1)
         {
             return false;
         }
-        bool user_does_not_exist{true};
-        bool is_user_deleted{true};
-        bool is_user_banned{true};
-        for (int i{0}; i < curr_user; i++)
-        {
-            if (library_users_array[i].id == user_id)
-            {
-                user_does_not_exist = false;
-                if (library_users_array[i].is_deleted == false)
-                {
-                    is_user_deleted = false;
-                    if (library_users_array[i].is_band_from_borrowing == false)
-                    {
-                        is_user_banned = false;
-                    }
-                }
-                break;
-            }
-        }
-        if (user_does_not_exist || is_user_deleted || is_user_banned)
+        if (book_array[found_book_idx].is_deleted || book_array[found_book_idx].quantity <= 0)
         {
             return false;
         }
-        // ceck input is valid
+        // 3. user: same pattern
+        int found_user_idx{get_user_idx_by_id(user_id)};
+        if (found_user_idx == -1)
+        {
+            return false;
+        }
+        if (library_users_array[found_user_idx].is_deleted || library_users_array[found_user_idx].is_band_from_borrowing)
+        {
+            return false;
+        }
+        // 4. fee inputs
         bool is_input_valid{true};
         if (fees < 0)
         {
@@ -695,7 +764,6 @@ struct Library_Books
         {
             if (!is_fully_paid)
             {
-                // here i need to check the what_is_paid too
                 if (what_is_paid < 0 || what_is_paid > fees)
                 {
                     is_input_valid = false;
@@ -706,6 +774,7 @@ struct Library_Books
         {
             return false;
         }
+        // all checks passed -> mutate
         library_borrowed_books[Number_of_borrowed_transaction] = Borrowed_Book(user_id, book_id, Year, month, month_day, fees, is_fully_paid, what_is_paid);
         Number_of_borrowed_transaction++;
         book_array[found_book_idx].quantity--;
@@ -730,73 +799,50 @@ struct Library_Books
     }
     bool user_return_book(int user_id, int book_id)
     {
-        // make sure that user exist and book exsit and borrow also exist and the borrow it self is not finished bcs this may lead into miss quntity of books if we simply ignore that
-        bool book_does_not_exist{true};
-        bool is_book_deleted{true};
-        int found_book_idx{-1};
-        for (int i{0}; i < curr_book; i++)
-        {
-            if (book_array[i].id == book_id)
-            {
-                book_does_not_exist = false;
-                found_book_idx = i;
-                if (book_array[i].is_deleted == false)
-                {
-                    is_book_deleted = false;
-                }
-                break;
-            }
-        }
-        if (book_does_not_exist || is_book_deleted)
+        // make sure book exist and not deleted, user exist and not deleted/banned,
+        // and an ACTIVE loan for this pair exists. finders answer "where", guards answer "accept?".
+        int found_book_idx{get_book_index_by_id(book_id)};
+        if (found_book_idx == -1)
         {
             return false;
         }
-        bool user_does_not_exist{true};
-        bool is_user_deleted{true};
-        bool is_user_banned{true};
-        for (int i{0}; i < curr_user; i++)
-        {
-            if (library_users_array[i].id == user_id)
-            {
-                user_does_not_exist = false;
-                if (library_users_array[i].is_deleted == false)
-                {
-                    is_user_deleted = false;
-                    if (library_users_array[i].is_band_from_borrowing == false)
-                    {
-                        is_user_banned = false;
-                    }
-                }
-                break;
-            }
-        }
-        // there is a note here can user get ban or deleted even if he borrow a book and he did not return it ? this is a tricky question that will seems not very easy to handle and it depend on library system not general thing i believe .
-        if (user_does_not_exist || is_user_deleted || is_user_banned)
+        if (book_array[found_book_idx].is_deleted)
         {
             return false;
         }
-        bool does_transaction_not_exist{true};
-        bool is_transaction_finished{true};
+        int found_user_idx{get_user_idx_by_id(user_id)};
+        if (found_user_idx == -1)
+        {
+            return false;
+        }
+        // policy: a BAN does not block returning a book. a ban stops NEW borrows,
+        // but returning is discharging an obligation, not a privilege -- blocking
+        // it would strand the book forever (banned user can't return, and rule 2/3
+        // won't let us delete the user/book while the loan is active). we only
+        // block a deleted user from transacting.
+        if (library_users_array[found_user_idx].is_deleted)
+        {
+            return false;
+        }
+        // find the active loan for this (user, book) pair
         int transaction_idx{-1};
         for (int i{0}; i < Number_of_borrowed_transaction; i++)
         {
-            if (library_borrowed_books[i].book_id == book_id && library_borrowed_books[i].user_id == user_id)
+            if (library_borrowed_books[i].book_id == book_id && library_borrowed_books[i].user_id == user_id && library_borrowed_books[i].is_finished == false)
             {
-                does_transaction_not_exist = false;
-                if (library_borrowed_books[i].is_finished == false)
-                {
-                    is_transaction_finished = false;
-                }
                 transaction_idx = i;
                 break;
             }
         }
-        if (does_transaction_not_exist || is_transaction_finished)
+        if (transaction_idx == -1)
         {
             return false;
         }
         /*
-        lets start with the logic we will mark transaction as finished and set the real_return time and increase the quntity of the book .
+        mark transaction finished + set real_return time via the loan's own method
+        (single source of truth for "finishing a loan"), then increase quantity.
+        note: user_return_book() returns false unless fees are fully paid -- policy
+        kept intentionally: a book cannot be returned until its fees are fully paid.
         */
         if (library_borrowed_books[transaction_idx].user_return_book() == false)
         {
@@ -811,22 +857,9 @@ struct Library_Books
     */
     Dynamic_arr<DTO_User_Borrowed_Book> get_user_active_loans(int user_id)
     {
-        // make sure user exist you should be apple to see loan of deleted or banned user (this is whole idea behinde every thing is recorded) but a deleted or banned user can have an active loans hmm
-        bool user_does_not_exist{true};
-        bool is_user_deleted{true};
-        for (int i{0}; i < curr_user; i++)
-        {
-            if (library_users_array[i].id == user_id)
-            {
-                user_does_not_exist = false;
-                if (library_users_array[i].is_deleted == false)
-                {
-                    is_user_deleted = false;
-                }
-                break;
-            }
-        }
-        if (user_does_not_exist || is_user_deleted)
+        // active view: user must exist and not be deleted
+        int user_idx{get_user_idx_by_id(user_id)};
+        if (user_idx == -1 || library_users_array[user_idx].is_deleted)
         {
             return Dynamic_arr<DTO_User_Borrowed_Book>{};
         }
@@ -838,7 +871,7 @@ struct Library_Books
             {
                 // we need to get book nane
                 int book_idx = get_book_index_by_id(library_borrowed_books[i].book_id);
-                string book_name = book_array[book_idx].name;
+                string book_name = (book_idx == -1) ? "" : book_array[book_idx].name;
                 // create a DTO_User variable and add
                 DTO_User_Borrowed_Book user_borrow_instance{DTO_User_Borrowed_Book(book_name,
                                                                                    "",
@@ -856,30 +889,21 @@ struct Library_Books
     }
     Dynamic_arr<DTO_User_Borrowed_Book> get_user_history_loans(int user_id)
     {
-        // make sure user exist you should be apple to see loan of deleted or banned user (this is whole idea behinde every thing is recorded) but a deleted or banned user can have an active loans hmm
-        // here deleted user or not banned or not does not matter , just it must exist
-        bool user_does_not_exist{true};
-        for (int i{0}; i < curr_user; i++)
-        {
-            if (library_users_array[i].id == user_id)
-            {
-                user_does_not_exist = false;
-                break;
-            }
-        }
-        if (user_does_not_exist)
+        // history view: user must exist; deleted/banned does not matter (show everything)
+        int user_idx{get_user_idx_by_id(user_id)};
+        if (user_idx == -1)
         {
             return Dynamic_arr<DTO_User_Borrowed_Book>{};
         }
         Dynamic_arr<DTO_User_Borrowed_Book> res{};
-        // search all loans that have id of this user and not finished
+        // all loans for this user, finished or not
         for (int i{}; i < Number_of_borrowed_transaction; i++)
         {
             if (library_borrowed_books[i].user_id == user_id)
             {
                 // we need to get book nane
                 int book_idx = get_book_index_by_id(library_borrowed_books[i].book_id);
-                string book_name = book_array[book_idx].name;
+                string book_name = (book_idx == -1) ? "" : book_array[book_idx].name;
                 // create a DTO_User variable and add
                 DTO_User_Borrowed_Book user_borrow_instance{DTO_User_Borrowed_Book(book_name,
                                                                                    string(""),
@@ -988,9 +1012,9 @@ struct Library_Books
         return res;
     }
     /*
-    query 4 : all borrowed books
+    query 4 : all actively-borrowed books
     */
-    Dynamic_arr<Book *> get_all_borrowed_book(int book_id)
+    Dynamic_arr<Book *> get_all_borrowed_book()
     {
         /*
         to make this correct iterate in the book_array and just check if it have a instance of borrow_book that is not finished
